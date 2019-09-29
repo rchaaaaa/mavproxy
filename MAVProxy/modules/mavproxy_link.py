@@ -546,6 +546,13 @@ class LinkModule(mp_module.MPModule):
         # see if it is handled by a specialised sysid connection
         sysid = m.get_srcSystem()
         mtype = m.get_type()
+        # mid=m.get_msgId()
+        # if mtype== "CTRL_STATES":
+        #     print("got")
+        # if mid==227:
+        #     print("got 227")
+        # if mid==27:
+        #     print("got 22")
         if sysid in self.mpstate.sysid_outputs:
             self.mpstate.sysid_outputs[sysid].write(m.get_msgbuf())
             if mtype == "GLOBAL_POSITION_INT":

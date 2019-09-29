@@ -43,6 +43,10 @@ class system_time(mp_module.MPModule):
             print(self.status())
         elif args[0] == "set":
             self.system_time_settings.command(args[1:])
+        elif args[0] == "sync":
+            timestamp=time.time()
+            timestamp_us=int(timestamp*1e6)
+            self.master.mav.system_time_send(timestamp_us,0)
         else:
             print(self.usage())
 
@@ -64,6 +68,7 @@ class system_time(mp_module.MPModule):
             if self.system_time_settings.verbose:
                 print("ST: Sending system time: (%u/%u)" %
                       (time_us, self.uptime(),))
+            # print("system time sent:%d"%time_us)
             self.master.mav.system_time_send(time_us,
                                              self.uptime())
 

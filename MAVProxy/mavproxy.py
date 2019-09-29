@@ -16,6 +16,7 @@ import shlex
 import math
 import platform
 import json
+import rospy
 
 from imp import reload
 
@@ -26,6 +27,8 @@ except ImportError:
 
 from builtins import input
 
+sys.path.append('/home/rc/Workspace/mavproxy')
+
 from MAVProxy.modules.lib import textconsole
 from MAVProxy.modules.lib import rline
 from MAVProxy.modules.lib import mp_module
@@ -33,6 +36,8 @@ from MAVProxy.modules.lib import dumpstacks
 from MAVProxy.modules.lib import mp_substitute
 from MAVProxy.modules.lib import multiproc
 from MAVProxy.modules.mavproxy_link import preferred_ports
+
+from swarm_traj_msgs.srv import  *
 
 # adding all this allows pyinstaller to build a working windows executable
 # note that using --hidden-import does not work for these modules
@@ -522,7 +527,8 @@ command_map = {
     'set'     : (cmd_set,      'mavproxy settings'),
     'watch'   : (cmd_watch,    'watch a MAVLink pattern'),
     'module'  : (cmd_module,   'module commands'),
-    'alias'   : (cmd_alias,    'command aliases')
+    'alias'   : (cmd_alias,    'command aliases'),
+    # 'sync' : (sync_time, 'send system time')
     }
 
 def shlex_quotes(value):
@@ -1025,7 +1031,46 @@ def set_mav_version(mav10, mav20, autoProtocol, mavversionArg):
         os.environ['MAVLINK20'] = '1'
         mavversion = "2"
 
+def arm_cb(req):
+    line="arm "+req.cmd
+    mpstate.input_queue.put(line)
+    return ArmCmdResponse(True)
+
+def takeoff_cb(req):
+    line="takeoff "+str(req.alt)+" "+str(req.takeoff_timestamp)+" "+str(req.start_duration)
+    mpstate.input_queue.put(line)
+    return TakeoffCmdResponse(True)
+
+def mode_cb(req):
+    line="mode "+req.mode
+    mpstate.input_queue.put(line)
+    return SetModeResponse(True)
+
+def timesync_cb(req):
+    line="system_time sync"
+    mpstate.input_queue.put(line)
+    return TimeSyncResponse(True)
+
+def server_init():
+    takeoffsrv = "mavproxy_takeoff"
+    timesyncsrv="mavproxy_timesync"
+    armsrv = "mavproxy_arm"
+    modesrv = "mavproxy_mode"
+    arm_server = rospy.Service(armsrv,ArmCmd,arm_cb)
+    takeoff_server = rospy.Service(takeoffsrv,TakeoffCmd,takeoff_cb)
+    mode_server = rospy.Service(modesrv,SetMode,mode_cb)
+    timesync_server=rospy.Service(timesyncsrv,TimeSync,timesync_cb)
+    rospy.spin() 
+
 if __name__ == '__main__':
+    args=sys.argv
+    node_name=""
+    if("__name:=" in sys.argv[-2]):
+        node_name=sys.argv[-2].split(":=")[1]
+        sys.argv=sys.argv[:-2]
+
+    print(sys.argv)
+
     from optparse import OptionParser
     parser = OptionParser("mavproxy.py [options]")
 
@@ -1040,6 +1085,8 @@ if __name__ == '__main__':
     parser.add_option("--baudrate", dest="baudrate", type='int',
                       help="default serial baud rate", default=57600)
     parser.add_option("--sitl", dest="sitl",  default=None, help="SITL output port")
+    # parser.add_option("--id", dest="id",  default=None, help="UAV id in swarm")
+    # parser.add_option("__name", dest="node_name",  default=None, help="ros node name")
     parser.add_option("--streamrate",dest="streamrate", default=4, type='int',
                       help="MAVLink stream rate")
     parser.add_option("--source-system", dest='SOURCE_SYSTEM', type='int',
@@ -1088,13 +1135,20 @@ if __name__ == '__main__':
     parser.add_option("--profile", action='store_true', help="run the Yappi python profiler")
     parser.add_option("--state-basedir", default=None, help="base directory for logs and aircraft directories")
     parser.add_option("--version", action='store_true', help="version information")
-    parser.add_option("--default-modules", default="log,signing,wp,rally,fence,param,relay,tuneopt,arm,mode,calibration,rc,auxopt,misc,cmdlong,battery,terrain,output,adsb,layout", help='default module list')
+    parser.add_option("--default-modules", default="log,signing,wp,rally,fence,param,relay,tuneopt,arm,mode,calibration,rc,auxopt,misc,cmdlong,battery,terrain,output,adsb,layout,system_time,ctrl_states", help='default module list')
 
     (opts, args) = parser.parse_args()
     if len(args) != 0:
           print("ERROR: mavproxy takes no position arguments; got (%s)" % str(args))
           sys.exit(1)
 
+    if len(node_name):
+        rospy.init_node(str(node_name))
+        mavproxy_srv_thread = threading.Thread(target=server_init, name='mavproxy_srv')
+        mavproxy_srv_thread.daemon=True
+        mavproxy_srv_thread.start()
+        print(str(node_name)+" ready")
+    
     # warn people about ModemManager which interferes badly with APM and Pixhawk
     if os.path.exists("/usr/sbin/ModemManager"):
         print("WARNING: You should uninstall ModemManager as it conflicts with APM and Pixhawk")
@@ -1281,6 +1335,8 @@ if __name__ == '__main__':
     mpstate.status.thread = threading.Thread(target=main_loop, name='main_loop')
     mpstate.status.thread.daemon = True
     mpstate.status.thread.start()
+
+
 
     # use main program for input. This ensures the terminal cleans
     # up on exit
